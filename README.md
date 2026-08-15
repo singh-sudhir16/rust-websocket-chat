@@ -4,6 +4,10 @@ A multi-room chat application built in **Rust** to learn how **WebSockets**
 work end-to-end. Built with axum + tokio on the backend and vanilla JS on the
 frontend — no frameworks, no build step.
 
+> **Live demo:** https://affectionate-nature-production-007e.up.railway.app
+>
+> Open it in two browser tabs, join with different usernames, and start chatting.
+
 > Built for demo and learning. Open two browser tabs and chat with yourself.
 
 ---
@@ -20,6 +24,7 @@ frontend — no frameworks, no build step.
   reconnects with exponential backoff and the server replays all messages
   you missed using a per-room history buffer + `last_seen_id`.
 - **Live roster** — see who's online in each room, updated in real time.
+- **Deployed on Railway** — live on the web with secure `wss://` WebSockets.
 
 ---
 
@@ -32,6 +37,7 @@ frontend — no frameworks, no build step.
   concurrently.
 - How to handle **reconnection** with message replay using monotonic IDs.
 - How to design a **JSON wire protocol** with tagged enums.
+- How to avoid **task scheduling races** in async Rust (see Concurrency notes).
 
 ---
 
@@ -75,8 +81,8 @@ frontend — no frameworks, no build step.
 rust-websocket-chat/
 ├── Cargo.toml              # deps: axum, tokio, serde, tower-http
 ├── Dockerfile              # multi-stage build for deployment
-├── fly.toml                # Fly.io config (if using Fly)
-├── render.yaml             # Render blueprint (if using Render)
+├── fly.toml                # Fly.io config (alternative deploy)
+├── render.yaml             # Render blueprint (alternative deploy)
 ├── src/
 │   ├── main.rs             # entry point, router, static serving
 │   ├── protocol.rs         # JSON frame types (ClientFrame / ServerFrame)
@@ -151,21 +157,70 @@ All frames are JSON with a `type` discriminator.
 
 ## Deploy
 
-### Render (recommended — free tier, no CC required)
+This app is **already deployed** on Railway:
+
+> https://affectionate-nature-production-007e.up.railway.app
+
+### Railway (recommended — free trial, WebSocket-friendly)
+
+The `Dockerfile` is pre-configured for Railway. To deploy your own instance:
+
+```sh
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login
+railway login
+
+# From the project root:
+railway init          # create a new project
+railway up --detach   # build & deploy
+railway domain        # get a public URL
+railway variables set PORT=8080
+```
+
+Railway supports WebSockets out of the box — no special proxy config needed.
+
+### Render (alternative — free tier, no CC)
 
 1. Push this repo to GitHub.
 2. Go to [render.com](https://dashboard.render.com/blueprints).
 3. Click **New Blueprint** and select this repo.
 4. Render detects `render.yaml` and creates the service automatically.
-5. Your app will be live at `https://rust-websocket-chat.onrender.com`.
 
-### Fly.io (requires credit card)
+### Fly.io (alternative — requires credit card)
 
 ```sh
 flyctl deploy
 ```
 
 The `fly.toml` and `Dockerfile` are already configured.
+
+---
+
+## Concurrency notes
+
+### Race condition: forwarder subscription vs. join announcement
+
+Each WebSocket connection spawns a **room forwarder** task that subscribes
+to the room's `broadcast::Sender` and forwards messages to the client's
+mpsc channel. When a user joins, `announce_join` publishes `system` and
+`roster` frames to that broadcast channel.
+
+If `announce_join` is called **before** the forwarder is subscribed, the
+client never receives those frames — it only gets `room_list` (which is
+sent directly via mpsc, not broadcast).
+
+**Fix** (in `handler.rs`):
+
+1. Spawn the forwarder task **before** calling `announce_join`.
+2. Call `tokio::task::yield_now()` after spawning, so the runtime polls
+   the forwarder and its `subscribe()` call completes before we publish.
+
+This is a subtle but important lesson in async Rust: spawning a task
+doesn't mean it starts immediately. The runtime schedules it, and without
+yielding, the caller may continue executing before the spawned task's
+first poll.
 
 ---
 
