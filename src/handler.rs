@@ -73,27 +73,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, addr: SocketAddr) {
     let rooms = state.room_names().await;
     let _ = client_tx.send(ServerFrame::RoomList { rooms });
 
-    // Subscribe to the initial room and replay history if reconnecting.
-    let _initial_rx = {
-        let mut rooms = state.rooms.write().await;
-        let room_state = rooms.entry(initial_room.clone()).or_insert_with(|| {
-            tracing::info!("creating room '{initial_room}' on demand");
-            crate::state::RoomState::new()
-        });
-        // If reconnecting, replay missed messages.
-        if let Some(last_id) = last_seen_id {
-            let missed = room_state.history_since(last_id);
-            let _ = client_tx.send(ServerFrame::History {
-                messages: missed,
-                room: initial_room.clone(),
-            });
-        }
-        room_state.tx.subscribe()
-    };
-
-    // Announce the join.
-    announce_join(&state, &username, &initial_room).await;
-
     // Update the client's room in the registry.
     {
         let mut clients = state.clients.write().await;
@@ -112,7 +91,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, addr: SocketAddr) {
         }
     });
 
-    // -- Spawn the room forwarder (restartable) --
+    // -- Spawn the room forwarder BEFORE announcing join --
+    // The forwarder subscribes to the room's broadcast channel. If we
+    // announce before spawning it, the client misses the system/roster
+    // frames that announce_join publishes.
     let forwarder_state = state.clone();
     let forwarder_username = username.clone();
     let forwarder_client_tx = client_tx.clone();
@@ -123,6 +105,31 @@ async fn handle_socket(socket: WebSocket, state: AppState, addr: SocketAddr) {
         initial_room.clone(),
         forwarder_client_tx.clone(),
     );
+
+    // Yield once to let the forwarder task subscribe to the broadcast
+    // channel before we publish the join announcement.
+    tokio::task::yield_now().await;
+
+    // Replay history if reconnecting (after forwarder is subscribed).
+    if let Some(last_id) = last_seen_id {
+        let missed = {
+            let rooms = state.rooms.read().await;
+            rooms
+                .get(&initial_room)
+                .map(|rs| rs.history_since(last_id))
+                .unwrap_or_default()
+        };
+        if !missed.is_empty() {
+            let _ = client_tx.send(ServerFrame::History {
+                messages: missed,
+                room: initial_room.clone(),
+            });
+        }
+    }
+
+    // Announce the join — now the forwarder is listening and will deliver
+    // the system and roster frames to this client.
+    announce_join(&state, &username, &initial_room).await;
 
     // -- Reader task: reads from WebSocket, routes frames --
     let reader_state = state.clone();
