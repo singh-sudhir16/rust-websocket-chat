@@ -11,12 +11,12 @@
     />
   </head>
   <body>
-    <!-- Join screen: shown until the user picks a username -->
+    <!-- ===== Join Screen ===== -->
     <div id="join-screen" class="screen">
       <div class="join-card">
         <div class="logo">💬</div>
         <h1>Rust WebSocket Chat</h1>
-        <p class="subtitle">A demo chat app powered by axum + WebSockets</p>
+        <p class="subtitle">Multi-room · Direct Messages · Reconnection</p>
         <form id="join-form">
           <input
             type="text"
@@ -29,47 +29,85 @@
           <button type="submit">Join Chat</button>
         </form>
         <p class="hint">
-          Open this page in another browser tab/window to chat with yourself.
+          Open another tab and join with a different name to test rooms, DMs,
+          and typing indicators.
         </p>
       </div>
     </div>
 
-    <!-- Chat screen: hidden until joined -->
+    <!-- ===== Chat Screen ===== -->
     <div id="chat-screen" class="screen hidden">
-      <header class="chat-header">
-        <div class="brand">
+      <!-- Left sidebar: rooms + online users -->
+      <aside class="sidebar-left">
+        <div class="sidebar-header">
           <span class="logo-small">💬</span>
-          <span>Rust WebSocket Chat</span>
+          <span class="brand-name">Rust WS Chat</span>
         </div>
-        <div class="status">
-          <span id="conn-dot" class="dot dot-online"></span>
-          <span id="conn-text">connected</span>
-        </div>
-        <button id="leave-btn" title="Leave chat">Leave</button>
-      </header>
 
-      <main class="chat-body">
-        <section id="messages" class="messages" aria-live="polite"></section>
-        <aside class="sidebar">
-          <h2>Online (<span id="user-count">0</span>)</h2>
-          <ul id="user-list"></ul>
-          <div class="sidebar-foot">
-            <p>WebSocket <code id="ws-state">—</code></p>
+        <!-- Rooms section -->
+        <div class="sidebar-section">
+          <h3>Rooms</h3>
+          <ul id="room-list" class="room-list"></ul>
+        </div>
+
+        <!-- Online users section -->
+        <div class="sidebar-section">
+          <h3>Online (<span id="online-count">0</span>)</h3>
+          <ul id="online-list" class="online-list"></ul>
+        </div>
+
+        <!-- Connection status -->
+        <div class="sidebar-footer">
+          <div class="conn-status">
+            <span id="conn-dot" class="dot dot-offline"></span>
+            <span id="conn-text">disconnected</span>
           </div>
-        </aside>
-      </main>
+          <button id="leave-btn" class="btn-leave">Leave</button>
+        </div>
+      </aside>
 
-      <form id="msg-form" class="composer">
-        <input
-          type="text"
-          id="msg-input"
-          placeholder="Type a message and press Enter…"
-          autocomplete="off"
-          maxlength="500"
-          disabled
-        />
-        <button type="submit" id="send-btn" disabled>Send</button>
-      </form>
+      <!-- Main chat area -->
+      <main class="chat-main">
+        <!-- DM tabs bar (hidden when in room mode) -->
+        <div id="dm-bar" class="dm-bar hidden">
+          <button id="dm-back-btn" class="dm-back">← Back to room</button>
+          <span id="dm-peer-name" class="dm-peer-name"></span>
+        </div>
+
+        <!-- Room header (hidden when in DM mode) -->
+        <header id="room-header" class="room-header">
+          <span id="current-room-name" class="room-name">#general</span>
+          <span id="room-typing" class="room-typing"></span>
+        </header>
+
+        <!-- Messages area -->
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <!-- Typing indicator bar -->
+        <div id="typing-bar" class="typing-bar hidden">
+          <span class="typing-dots"><span></span><span></span><span></span></span>
+          <span id="typing-text"></span>
+        </div>
+
+        <!-- Reconnection banner -->
+        <div id="reconnect-banner" class="reconnect-banner hidden">
+          <span class="spinner"></span>
+          <span id="reconnect-text">Reconnecting…</span>
+        </div>
+
+        <!-- Message composer -->
+        <form id="msg-form" class="composer">
+          <input
+            type="text"
+            id="msg-input"
+            placeholder="Type a message and press Enter…"
+            autocomplete="off"
+            maxlength="500"
+            disabled
+          />
+          <button type="submit" id="send-btn" disabled>Send</button>
+        </form>
+      </main>
     </div>
 
     <script src="app.js"></script>

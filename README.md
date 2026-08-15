@@ -1,21 +1,37 @@
 # 💬 Rust WebSocket Chat
 
-A minimal but complete chat application built in **Rust** to learn how
-**WebSockets** work end-to-end. It ships with a server (axum + tokio) and a
-dependency-free vanilla JS frontend served from the same process.
+A multi-room chat application built in **Rust** to learn how **WebSockets**
+work end-to-end. Built with axum + tokio on the backend and vanilla JS on the
+frontend — no frameworks, no build step.
 
 > Built for demo and learning. Open two browser tabs and chat with yourself.
+
+---
+
+## ✨ Features (v0.2)
+
+- **Multi-room chat** — switch between `#general`, `#random`, `#tech` or any
+  room you type. Each room has its own broadcast channel.
+- **Direct messages (DMs)** — click any online user to open a private
+  conversation. DMs are routed directly via a per-client mpsc channel.
+- **Typing indicators** — see when someone is typing in real time, with
+  debounce and auto-timeout.
+- **Reconnection with replay** — if your connection drops, the client
+  reconnects with exponential backoff and the server replays all messages
+  you missed using a per-room history buffer + `last_seen_id`.
+- **Live roster** — see who's online in each room, updated in real time.
 
 ---
 
 ## What you'll learn
 
 - How an HTTP request is **upgraded** to a persistent WebSocket connection.
-- How a server **fans out** one message to many connected clients using a
-  `tokio::sync::broadcast` channel.
+- How to **fan out** messages using `tokio::sync::broadcast` channels.
+- How to **route** messages: broadcast (rooms) vs targeted (DMs).
 - How to **split** a WebSocket into a reader and a writer and run them
   concurrently.
-- How the browser's `WebSocket` API sends and receives text frames.
+- How to handle **reconnection** with message replay using monotonic IDs.
+- How to design a **JSON wire protocol** with tagged enums.
 
 ---
 
@@ -24,36 +40,32 @@ dependency-free vanilla JS frontend served from the same process.
 ```
 ┌─────────────┐      HTTP GET /ws (Upgrade)      ┌──────────────────┐
 │  Browser    │ ───────────────────────────────▶ │  axum server     │
-│  (app.js)   │ ◀─────────────────────────────── │  (src/main.rs)   │
-│             │      bidirectional frames        │                  │
-│  tab 1      │                                  │  broadcast       │
-│  tab 2      │ ──send("hi")──▶                  │  channel ──┐     │
-│             │                  ◀──recv("hi")── │            │     │
-└─────────────┘                                  │  ┌─────────┴───┐ │
-                                                 │  │ every client│ │
-                                                 │  │ subscriber  │ │
-                                                 │  └─────────────┘ │
+│  (app.js)   │ ◀─────────────────────────────── │  (src/)          │
+│             │      bidirectional JSON frames   │                  │
+└─────────────┘                                  │  ┌────────────┐  │
+                                                 │  │ Room: gen  │  │
+                                                 │  │ broadcast  │  │
+                                                 │  │ + history  │  │
+                                                 │  ├────────────┤  │
+                                                 │  │ Room: rand │  │
+                                                 │  │ broadcast  │  │
+                                                 │  │ + history  │  │
+                                                 │  ├────────────┤  │
+                                                 │  │ Clients    │  │
+                                                 │  │ (DM routing)│ │
+                                                 │  └────────────┘  │
                                                  └──────────────────┘
 ```
 
-### The key idea: a broadcast channel
+### Key concepts
 
-```
-            ┌─────────────┐
-client A ──▶│             │──▶ subscriber A ──▶ client A's socket
-client B ──▶│  broadcast  │──▶ subscriber B ──▶ client B's socket
-client C ──▶│   channel   │──▶ subscriber C ──▶ client C's socket
-            └─────────────┘
-```
-
-Every connection:
-
-1. Calls `state.tx.subscribe()` to get its **own receiver**.
-2. Spawns a **reader task** that publishes incoming frames via `tx.send(...)`.
-3. Spawns a **writer task** that forwards received broadcasts to its socket.
-
-When any client sends a message, **every** subscriber (including the sender)
-gets a copy. That's the whole chat server.
+| Concept | How it's implemented |
+|---|---|
+| **Room broadcast** | Each room has a `broadcast::Sender<ServerFrame>`. Subscribers get their own receiver. |
+| **DM routing** | A `HashMap<String, ClientHandle>` maps usernames → per-client `mpsc::UnboundedSender`. |
+| **Reconnection replay** | Each room keeps a ring buffer of the last 200 messages. Reconnecting clients send `last_seen_id` and receive `History` with missed messages. |
+| **Typing indicators** | Ephemeral `Typing` frames broadcast to the room (not stored in history). |
+| **Wire protocol** | Tagged JSON enums: `{"type":"chat",...}`, `{"type":"dm",...}`, etc. |
 
 ---
 
@@ -61,18 +73,24 @@ gets a copy. That's the whole chat server.
 
 ```
 rust-websocket-chat/
-├── Cargo.toml          # dependencies: axum, tokio, tower-http, futures-util
+├── Cargo.toml              # deps: axum, tokio, serde, tower-http
+├── Dockerfile              # multi-stage build for deployment
+├── fly.toml                # Fly.io config (if using Fly)
+├── render.yaml             # Render blueprint (if using Render)
 ├── src/
-│   └── main.rs         # the entire server (~240 lines, heavily commented)
-└── static/             # frontend, served by tower-http::ServeDir
-    ├── index.html      # join screen + chat screen
-    ├── style.css       # dark theme, no frameworks
-    └── app.js          # WebSocket client logic
+│   ├── main.rs             # entry point, router, static serving
+│   ├── protocol.rs         # JSON frame types (ClientFrame / ServerFrame)
+│   ├── state.rs            # shared state (room registry, client registry)
+│   └── handler.rs          # WebSocket lifecycle: reader, writer, forwarder
+└── static/                 # frontend, served by tower-http::ServeDir
+    ├── index.html          # join screen + chat screen
+    ├── style.css           # dark theme, no frameworks
+    └── app.js              # WebSocket client with reconnection
 ```
 
 ---
 
-## Run it
+## Run locally
 
 ### Prerequisites
 
@@ -90,82 +108,78 @@ The server listens on `http://localhost:3000`.
 
 1. Open `http://localhost:3000` in your browser.
 2. Enter a username and click **Join Chat**.
-3. Open a **second** tab (or a different browser) and join with another name.
-4. Type messages — everyone in the room sees them instantly.
+3. Open a **second** tab and join with another name.
+4. Try these:
+   - **Switch rooms** — click a room in the left sidebar.
+   - **Send a DM** — click an online user in the sidebar.
+   - **Typing indicator** — start typing and watch the other tab.
+   - **Test reconnection** — kill the server (`Ctrl+C`), restart it, and
+     watch the client reconnect and replay missed messages.
 
-### Try the slow-client behavior
+---
 
-Set `RUST_LOG=debug` to see lag warnings when a subscriber falls behind:
+## Wire protocol
+
+All frames are JSON with a `type` discriminator.
+
+### Client → Server
+
+```json
+{"type": "join", "username": "alice"}
+{"type": "chat", "text": "hello!"}
+{"type": "switch_room", "room": "random"}
+{"type": "dm", "to": "bob", "text": "hey bob"}
+{"type": "typing", "is_typing": true}
+{"type": "reconnect", "username": "alice", "last_seen_id": 42}
+```
+
+### Server → Client
+
+```json
+{"type": "chat", "id": 1, "timestamp": "16:30:00", "username": "alice", "text": "hello!", "room": "general"}
+{"type": "system", "text": "alice joined the room", "room": "general"}
+{"type": "roster", "users": ["alice", "bob"], "room": "general"}
+{"type": "room_list", "rooms": ["general", "random", "tech"]}
+{"type": "typing", "username": "alice", "is_typing": true, "room": "general"}
+{"type": "dm", "from": "alice", "text": "hey bob", "timestamp": "16:30:00"}
+{"type": "dm_sent", "to": "bob", "text": "hey bob", "timestamp": "16:30:00"}
+{"type": "history", "messages": [...], "room": "general"}
+{"type": "error", "text": "user 'bob' is not online"}
+```
+
+---
+
+## Deploy
+
+### Render (recommended — free tier, no CC required)
+
+1. Push this repo to GitHub.
+2. Go to [render.com](https://dashboard.render.com/blueprints).
+3. Click **New Blueprint** and select this repo.
+4. Render detects `render.yaml` and creates the service automatically.
+5. Your app will be live at `https://rust-websocket-chat.onrender.com`.
+
+### Fly.io (requires credit card)
 
 ```sh
-RUST_LOG=debug cargo run
+flyctl deploy
 ```
 
----
-
-## How the WebSocket upgrade works
-
-A WebSocket connection starts life as an ordinary HTTP request:
-
-```
-GET /ws HTTP/1.1
-Host: localhost:3000
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-Sec-WebSocket-Version: 13
-```
-
-The server responds with `101 Switching Protocols` and from that point the
-**same TCP socket** carries WebSocket frames in both directions — no more
-HTTP. In axum this is handled by the `WebSocketUpgrade` extractor:
-
-```rust
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state, addr))
-}
-```
-
-`on_upgrade` sends the `101` response and hands you a `WebSocket` you can split
-into a sink (writer) and stream (reader).
-
----
-
-## Message protocol
-
-The app uses a tiny line-based text protocol (no JSON needed for a demo):
-
-| Frame                                | Meaning                          |
-| ------------------------------------ | -------------------------------- |
-| _(first frame from client)_          | The client's username            |
-| `[HH:MM:SS] alice: hello`            | A chat message from a user       |
-| `[SYSTEM] alice joined the chat`     | A join/leave notice              |
-| `[ROSTER] alice, bob, carol`         | The current list of online users |
-
-The frontend (`app.js`) parses these prefixes and routes each line to the
-right renderer.
+The `fly.toml` and `Dockerfile` are already configured.
 
 ---
 
 ## Dependencies
 
-| crate                | why                                           |
-| -------------------- | --------------------------------------------- |
-| `axum` (`ws` feature)| HTTP server + first-class WebSocket support   |
-| `tokio` (`full`)     | Async runtime, tasks, `broadcast` channel     |
-| `tower-http` (`fs`)  | `ServeDir` for serving the static frontend    |
-| `futures-util`       | `SinkExt`/`StreamExt` to split the socket     |
-| `tracing`            | Structured logging                            |
-
----
-
-## Things to try next (learning extensions)
-
-- [ ] Send messages as JSON instead of line-based text.
-- [ ] Add per-room channels (multiple broadcast senders keyed by room id).
-- [ ] Persist messages to SQLite so history survives restarts.
-- [ ] Add a `/health` REST endpoint alongside `/ws`.
-- [ ] Deploy behind a reverse proxy with TLS (`wss://`).
+| crate | why |
+|---|---|
+| `axum` (`ws`) | HTTP server + WebSocket upgrade |
+| `tokio` (`full`) | Async runtime, `broadcast` + `mpsc` channels |
+| `tower-http` (`fs`) | `ServeDir` for static frontend |
+| `futures-util` | `SinkExt`/`StreamExt` to split the socket |
+| `serde` / `serde_json` | JSON wire protocol |
+| `uuid` | Unique message IDs |
+| `tracing` | Structured logging |
 
 ---
 

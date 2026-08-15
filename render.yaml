@@ -1,0 +1,17 @@
+# Render Blueprint for Rust WebSocket Chat
+# Docs: https://render.com/docs/blueprint-spec
+# After pushing this to GitHub, go to:
+#   https://dashboard.render.com/blueprints
+# and connect this repo. Render will detect this file and create the service.
+
+services:
+  - type: web
+    name: rust-websocket-chat
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8080

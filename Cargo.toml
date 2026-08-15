@@ -1,6 +1,6 @@
 [package]
 name = "rust-websocket-chat"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Sudhir Singh"]
 description = "A demo WebSocket chat app in Rust for learning WebSockets"
@@ -13,11 +13,16 @@ axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 # Static file serving (for the frontend)
 tower-http = { version = "0.6", features = ["fs"] }
-# Stream utilities for splitting the WebSocket into reader/writer
+# Stream utilities for splitting the WebSocket into reader/stream
 futures-util = "0.3"
 # Tracing/logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# JSON serialization for the wire protocol
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Unique ID generation for messages
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 opt-level = 3
