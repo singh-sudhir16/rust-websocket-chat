@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rust WebSocket Chat</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>"
+    />
+  </head>
+  <body>
+    <!-- Join screen: shown until the user picks a username -->
+    <div id="join-screen" class="screen">
+      <div class="join-card">
+        <div class="logo">💬</div>
+        <h1>Rust WebSocket Chat</h1>
+        <p class="subtitle">A demo chat app powered by axum + WebSockets</p>
+        <form id="join-form">
+          <input
+            type="text"
+            id="username-input"
+            placeholder="Enter a username"
+            autocomplete="off"
+            maxlength="20"
+            required
+          />
+          <button type="submit">Join Chat</button>
+        </form>
+        <p class="hint">
+          Open this page in another browser tab/window to chat with yourself.
+        </p>
+      </div>
+    </div>
+
+    <!-- Chat screen: hidden until joined -->
+    <div id="chat-screen" class="screen hidden">
+      <header class="chat-header">
+        <div class="brand">
+          <span class="logo-small">💬</span>
+          <span>Rust WebSocket Chat</span>
+        </div>
+        <div class="status">
+          <span id="conn-dot" class="dot dot-online"></span>
+          <span id="conn-text">connected</span>
+        </div>
+        <button id="leave-btn" title="Leave chat">Leave</button>
+      </header>
+
+      <main class="chat-body">
+        <section id="messages" class="messages" aria-live="polite"></section>
+        <aside class="sidebar">
+          <h2>Online (<span id="user-count">0</span>)</h2>
+          <ul id="user-list"></ul>
+          <div class="sidebar-foot">
+            <p>WebSocket <code id="ws-state">—</code></p>
+          </div>
+        </aside>
+      </main>
+
+      <form id="msg-form" class="composer">
+        <input
+          type="text"
+          id="msg-input"
+          placeholder="Type a message and press Enter…"
+          autocomplete="off"
+          maxlength="500"
+          disabled
+        />
+        <button type="submit" id="send-btn" disabled>Send</button>
+      </form>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

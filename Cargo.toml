@@ -1,0 +1,24 @@
+[package]
+name = "rust-websocket-chat"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sudhir Singh"]
+description = "A demo WebSocket chat app in Rust for learning WebSockets"
+license = "MIT"
+
+[dependencies]
+# Web framework with built-in WebSocket support
+axum = { version = "0.8", features = ["ws"] }
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# Static file serving (for the frontend)
+tower-http = { version = "0.6", features = ["fs"] }
+# Stream utilities for splitting the WebSocket into reader/writer
+futures-util = "0.3"
+# Tracing/logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3
+lto = true
